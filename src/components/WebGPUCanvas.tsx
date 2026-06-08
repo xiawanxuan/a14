@@ -1,15 +1,20 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useImperativeHandle, forwardRef } from 'react';
 import { WebGPURenderer } from '../core/WebGPURenderer';
 import { PhysicsEngine } from '../core/PhysicsEngine';
 import { InteractionController } from '../core/InteractionController';
-import type { Molecule } from '../core/MoleculeData';
+import type { Molecule, Atom } from '../core/MoleculeData';
 import { useSimulationStore } from '../store/simulationStore';
 
 interface WebGPUCanvasProps {
   molecule: Molecule;
 }
 
-export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
+export interface WebGPUCanvasHandle {
+  exportTrajectories: (format: 'json' | 'csv') => string;
+  getPhysicsEngine: () => PhysicsEngine | null;
+}
+
+const WebGPUCanvas = forwardRef<WebGPUCanvasHandle, WebGPUCanvasProps>(function WebGPUCanvas({ molecule }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<WebGPURenderer | null>(null);
   const physicsRef = useRef<PhysicsEngine | null>(null);
@@ -22,6 +27,8 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
   const speedRef = useRef(1);
   const showForcesRef = useRef(false);
   const showTrajectoriesRef = useRef(false);
+  const showHydrogenBondsRef = useRef(false);
+  const atomsRef = useRef<Atom[]>([]);
 
   const {
     isPlaying,
@@ -31,6 +38,7 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
     showForces,
     showTrajectories,
     showStars,
+    showHydrogenBonds,
     forceScale,
     autoRotate,
     resetTrigger,
@@ -39,13 +47,24 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
     setEnergies,
     setAtomCount,
     setBondCount,
+    setHydrogenBondCount,
     setActualTemperature,
+    setSelectedAtom,
   } = useSimulationStore();
 
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { showForcesRef.current = showForces; }, [showForces]);
   useEffect(() => { showTrajectoriesRef.current = showTrajectories; }, [showTrajectories]);
+  useEffect(() => { showHydrogenBondsRef.current = showHydrogenBonds; }, [showHydrogenBonds]);
+
+  useImperativeHandle(ref, () => ({
+    exportTrajectories: (format: 'json' | 'csv') => {
+      if (!physicsRef.current) return '';
+      return physicsRef.current.exportTrajectories(format);
+    },
+    getPhysicsEngine: () => physicsRef.current,
+  }));
 
   const loadMolecule = useCallback((mol: Molecule) => {
     if (!physicsRef.current || !rendererRef.current || !interactionRef.current) return;
@@ -54,11 +73,13 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
 
     const atoms = physicsRef.current.getAtoms();
     const bonds = physicsRef.current.getBonds();
+    atomsRef.current = atoms;
     rendererRef.current.updateAtoms(atoms);
     rendererRef.current.updateBonds(atoms, bonds);
 
     setAtomCount(atoms.length);
     setBondCount(bonds.length);
+    setHydrogenBondCount(0);
 
     let maxDist = 0;
     for (const atom of atoms) {
@@ -72,7 +93,37 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
     if (maxDist > 0) {
       interactionRef.current.fitView(Math.max(maxDist, 2));
     }
-  }, [setAtomCount, setBondCount]);
+  }, [setAtomCount, setBondCount, setHydrogenBondCount]);
+
+  const handleCanvasClick = useCallback((e: MouseEvent) => {
+    if (!rendererRef.current || !interactionRef.current || !physicsRef.current) return;
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const x = (e.clientX - rect.left) * dpr;
+    const y = (e.clientY - rect.top) * dpr;
+
+    const atoms = physicsRef.current.getAtoms();
+    const camera = interactionRef.current.getCamera();
+    const result = rendererRef.current.raycastAtom(x, y, atoms, camera);
+
+    if (result) {
+      setSelectedAtom({ ...result.atom });
+    } else {
+      setSelectedAtom(null);
+    }
+  }, [setSelectedAtom]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const handler = (e: MouseEvent) => handleCanvasClick(e);
+    canvas.addEventListener('click', handler);
+    return () => canvas.removeEventListener('click', handler);
+  }, [handleCanvasClick]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -95,6 +146,7 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
         showForces,
         showTrajectories,
         showStars,
+        showHydrogenBonds,
         forceScale,
       });
 
@@ -154,10 +206,11 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
         showForces,
         showTrajectories,
         showStars,
+        showHydrogenBonds,
         forceScale,
       });
     }
-  }, [showBonds, showForces, showTrajectories, showStars, forceScale]);
+  }, [showBonds, showForces, showTrajectories, showStars, showHydrogenBonds, forceScale]);
 
   useEffect(() => {
     if (interactionRef.current) {
@@ -218,6 +271,11 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
           rendererRef.current.updateTrajectories(trajectories);
         }
 
+        if (showHydrogenBondsRef.current) {
+          const hBonds = physicsRef.current.getHydrogenBonds();
+          rendererRef.current.updateHydrogenBonds(hBonds, atoms);
+        }
+
         interactionRef.current.update(deltaTime);
 
         const camera = interactionRef.current.getCamera();
@@ -232,6 +290,9 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
             physicsRef.current.getPotentialEnergy()
           );
           setActualTemperature(physicsRef.current.getTemperature());
+          if (showHydrogenBondsRef.current) {
+            setHydrogenBondCount(physicsRef.current.getHydrogenBonds().length);
+          }
         }
       }
 
@@ -252,7 +313,9 @@ export default function WebGPUCanvas({ molecule }: WebGPUCanvasProps) {
     <canvas
       ref={canvasRef}
       className="w-full h-full block"
-      style={{ touchAction: 'none' }}
+      style={{ touchAction: 'none', cursor: 'pointer' }}
     />
   );
-}
+});
+
+export default WebGPUCanvas;

@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
-import WebGPUCanvas from '@/components/WebGPUCanvas';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import WebGPUCanvas, { WebGPUCanvasHandle } from '@/components/WebGPUCanvas';
 import ControlPanel from '@/components/ControlPanel';
 import InfoPanel from '@/components/InfoPanel';
 import Timeline from '@/components/Timeline';
+import AtomInfoModal from '@/components/AtomInfoModal';
 import { useSimulationStore } from '@/store/simulationStore';
 import { AlertTriangle } from 'lucide-react';
 
 export default function Home() {
   const { molecules, currentMoleculeIndex } = useSimulationStore();
   const [webgpuSupported, setWebgpuSupported] = useState<boolean | null>(null);
+  const canvasRef = useRef<WebGPUCanvasHandle>(null);
 
   useEffect(() => {
     const checkSupport = async () => {
@@ -24,6 +26,23 @@ export default function Home() {
       }
     };
     checkSupport();
+  }, []);
+
+  const handleExportTrajectories = useCallback((format: 'json' | 'csv') => {
+    if (!canvasRef.current) return;
+    
+    const content = canvasRef.current.exportTrajectories(format);
+    const blob = new Blob([content], { 
+      type: format === 'json' ? 'application/json' : 'text/csv' 
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `trajectories_${Date.now()}.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }, []);
 
   const currentMolecule = molecules[currentMoleculeIndex];
@@ -61,15 +80,16 @@ export default function Home() {
       {webgpuSupported === true && (
         <>
           <div className="absolute inset-0">
-            <WebGPUCanvas molecule={currentMolecule} />
+            <WebGPUCanvas ref={canvasRef} molecule={currentMolecule} />
           </div>
 
-          <ControlPanel />
+          <ControlPanel onExportTrajectories={handleExportTrajectories} />
           <InfoPanel />
           <Timeline />
+          <AtomInfoModal />
 
           <div className="absolute bottom-24 left-1/2 -translate-x-1/2 text-slate-600 text-xs pointer-events-none">
-            拖拽旋转 · 滚轮缩放 · 右键平移
+            拖拽旋转 · 滚轮缩放 · 右键平移 · 点击原子查看详情
           </div>
 
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

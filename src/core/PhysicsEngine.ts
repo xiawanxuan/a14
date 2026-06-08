@@ -1,4 +1,4 @@
-import type { Atom, Vec3, Bond } from './MoleculeData';
+import type { Atom, Vec3, Bond, HydrogenBond } from './MoleculeData';
 
 export interface ForcePair {
   atom1: number;
@@ -497,5 +497,158 @@ export class PhysicsEngine {
       if (absMag > max) max = absMag;
     }
     return max;
+  }
+
+  getHydrogenBonds(): HydrogenBond[] {
+    const hBonds: HydrogenBond[] = [];
+    const hBondDonors = ['N', 'O', 'F'];
+    const hBondAcceptors = ['N', 'O', 'F'];
+    const maxDistance = 2.5;
+    const minAngle = 120 * Math.PI / 180;
+
+    const hydrogenIndices: number[] = [];
+    for (let i = 0; i < this.atoms.length; i++) {
+      if (this.atoms[i].element === 'H') {
+        hydrogenIndices.push(i);
+      }
+    }
+
+    for (const hIdx of hydrogenIndices) {
+      const hAtom = this.atoms[hIdx];
+      let donorIdx = -1;
+      let minDist = Infinity;
+
+      for (let i = 0; i < this.atoms.length; i++) {
+        if (i === hIdx) continue;
+        if (!hBondDonors.includes(this.atoms[i].element)) continue;
+
+        const pairKey1 = `${i}-${hIdx}`;
+        const pairKey2 = `${hIdx}-${i}`;
+        if (!this.bondedPairs.has(pairKey1) && !this.bondedPairs.has(pairKey2)) continue;
+
+        const dx = hAtom.position.x - this.atoms[i].position.x;
+        const dy = hAtom.position.y - this.atoms[i].position.y;
+        const dz = hAtom.position.z - this.atoms[i].position.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (dist < minDist) {
+          minDist = dist;
+          donorIdx = i;
+        }
+      }
+
+      if (donorIdx === -1) continue;
+
+      const donorAtom = this.atoms[donorIdx];
+      const donorToH = {
+        x: hAtom.position.x - donorAtom.position.x,
+        y: hAtom.position.y - donorAtom.position.y,
+        z: hAtom.position.z - donorAtom.position.z,
+      };
+
+      for (let i = 0; i < this.atoms.length; i++) {
+        if (i === hIdx || i === donorIdx) continue;
+        if (!hBondAcceptors.includes(this.atoms[i].element)) continue;
+
+        const acceptorAtom = this.atoms[i];
+        const hToAcceptor = {
+          x: acceptorAtom.position.x - hAtom.position.x,
+          y: acceptorAtom.position.y - hAtom.position.y,
+          z: acceptorAtom.position.z - hAtom.position.z,
+        };
+
+        const distHA = Math.sqrt(
+          hToAcceptor.x * hToAcceptor.x +
+          hToAcceptor.y * hToAcceptor.y +
+          hToAcceptor.z * hToAcceptor.z
+        );
+
+        if (distHA > maxDistance) continue;
+
+        const dot =
+          donorToH.x * hToAcceptor.x +
+          donorToH.y * hToAcceptor.y +
+          donorToH.z * hToAcceptor.z;
+
+        const lenDH = Math.sqrt(
+          donorToH.x * donorToH.x +
+          donorToH.y * donorToH.y +
+          donorToH.z * donorToH.z
+        );
+
+        const cosAngle = dot / (lenDH * distHA);
+        const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+
+        if (angle >= minAngle) {
+          hBonds.push({
+            donor: donorIdx,
+            hydrogen: hIdx,
+            acceptor: i,
+            distance: distHA,
+            angle: angle * 180 / Math.PI,
+          });
+        }
+      }
+    }
+
+    return hBonds;
+  }
+
+  exportTrajectories(format: 'json' | 'csv' = 'json'): string {
+    const atomIds = Array.from(this.trajectories.keys());
+
+    if (format === 'csv') {
+      const maxLen = Math.max(...Array.from(this.trajectories.values()).map(t => t.length));
+      let csv = 'timestamp';
+      for (const id of atomIds) {
+        csv += `,atom_${id}_x,atom_${id}_y,atom_${id}_z`;
+      }
+      csv += '\n';
+
+      for (let t = 0; t < maxLen; t++) {
+        let timestamp = 0;
+        const firstTraj = this.trajectories.get(atomIds[0]);
+        if (firstTraj && t < firstTraj.length) {
+          timestamp = firstTraj[t].timestamp;
+        }
+        csv += timestamp.toFixed(4);
+
+        for (const id of atomIds) {
+          const traj = this.trajectories.get(id);
+          if (traj && t < traj.length) {
+            csv += `,${traj[t].position.x.toFixed(4)},${traj[t].position.y.toFixed(4)},${traj[t].position.z.toFixed(4)}`;
+          } else {
+            csv += ',,,';
+          }
+        }
+        csv += '\n';
+      }
+
+      return csv;
+    } else {
+      const data = {
+        simulationTime: this.simulationTime,
+        stepCount: this.stepCount,
+        atomCount: this.atoms.length,
+        atoms: this.atoms.map(a => ({
+          id: a.id,
+          element: a.element,
+          mass: a.mass,
+          atomicNumber: a.atomicNumber,
+        })),
+        trajectories: Object.fromEntries(
+          Array.from(this.trajectories.entries()).map(([id, traj]) => [
+            id,
+            traj.map(p => ({
+              t: p.timestamp,
+              x: p.position.x,
+              y: p.position.y,
+              z: p.position.z,
+            })),
+          ])
+        ),
+      };
+      return JSON.stringify(data, null, 2);
+    }
   }
 }

@@ -1,9 +1,13 @@
-import { Play, Pause, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Pause, Settings, ChevronLeft, ChevronRight, Download, Droplets } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 
-export default function ControlPanel() {
+interface ControlPanelProps {
+  onExportTrajectories?: (format: 'json' | 'csv') => void;
+}
+
+export default function ControlPanel({ onExportTrajectories }: ControlPanelProps) {
   const {
     molecules,
     currentMoleculeIndex,
@@ -14,6 +18,7 @@ export default function ControlPanel() {
     showForces,
     showTrajectories,
     showStars,
+    showHydrogenBonds,
     forceScale,
     autoRotate,
     setCurrentMoleculeIndex,
@@ -23,6 +28,7 @@ export default function ControlPanel() {
     setShowForces,
     setShowTrajectories,
     setShowStars,
+    setShowHydrogenBonds,
     setForceScale,
     setAutoRotate,
     togglePlay,
@@ -138,6 +144,12 @@ export default function ControlPanel() {
                 onChange={setShowBonds}
               />
               <ToggleOption
+                label="显示氢键"
+                checked={showHydrogenBonds}
+                onChange={setShowHydrogenBonds}
+                icon={<Droplets className="w-3.5 h-3.5" />}
+              />
+              <ToggleOption
                 label="显示作用力"
                 checked={showForces}
                 onChange={setShowForces}
@@ -177,6 +189,27 @@ export default function ControlPanel() {
                   />
                 </div>
               )}
+
+              <div className="pt-2 border-t border-slate-700/50">
+                <div className="text-slate-400 text-xs mb-2 flex items-center gap-2">
+                  <Download className="w-3.5 h-3.5" />
+                  导出运动轨迹
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onExportTrajectories?.('json')}
+                    className="flex-1 px-3 py-1.5 text-xs bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-lg transition-colors border border-slate-600/30"
+                  >
+                    JSON
+                  </button>
+                  <button
+                    onClick={() => onExportTrajectories?.('csv')}
+                    className="flex-1 px-3 py-1.5 text-xs bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-lg transition-colors border border-slate-600/30"
+                  >
+                    CSV
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -196,12 +229,16 @@ interface ToggleOptionProps {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  icon?: React.ReactNode;
 }
 
-function ToggleOption({ label, checked, onChange }: ToggleOptionProps) {
+function ToggleOption({ label, checked, onChange, icon }: ToggleOptionProps) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-slate-400 text-sm">{label}</span>
+      <span className="text-slate-400 text-sm flex items-center gap-1.5">
+        {icon && <span className="text-cyan-400/70">{icon}</span>}
+        {label}
+      </span>
       <button
         onClick={() => onChange(!checked)}
         className={clsx(

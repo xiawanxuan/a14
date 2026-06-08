@@ -1,4 +1,4 @@
-import { Atom, Zap, Clock, Activity, Thermometer } from 'lucide-react';
+import { Atom, Zap, Clock, Activity, Thermometer, Droplets } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 
 export default function InfoPanel() {
@@ -9,6 +9,8 @@ export default function InfoPanel() {
     potentialEnergy,
     atomCount,
     bondCount,
+    hydrogenBondCount,
+    showHydrogenBonds,
     actualTemperature,
   } = useSimulationStore();
 
@@ -45,6 +47,15 @@ export default function InfoPanel() {
             value={bondCount.toString()}
             color="text-amber-400"
           />
+
+          {showHydrogenBonds && (
+            <InfoRow
+              icon={<Droplets className="w-4 h-4" />}
+              label="氢键"
+              value={hydrogenBondCount.toString()}
+              color="text-cyan-300"
+            />
+          )}
 
           <InfoRow
             icon={<Thermometer className="w-4 h-4" />}

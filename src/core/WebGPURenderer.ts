@@ -1,4 +1,4 @@
-import type { Atom, Bond, Vec3 } from './MoleculeData';
+import type { Atom, Bond, Vec3, HydrogenBond } from './MoleculeData';
 import { vec3Sub, vec3Normalize, vec3Cross, vec3Add, vec3Scale, vec3Length } from './MoleculeData';
 import type { CameraState } from './InteractionController';
 import type { ForcePair, TrajectoryPoint } from './PhysicsEngine';
@@ -206,6 +206,74 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
 }
 `;
 
+const HBOND_VERTEX_SHADER = `
+struct Uniforms {
+  viewProj: mat4x4<f32>,
+  viewPos: vec3<f32>,
+  padding: f32,
+};
+
+struct HBondData {
+  start: vec3<f32>,
+  dashLen: f32,
+  end: vec3<f32>,
+  gapLen: f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(5) var<storage, read> hBondData: array<HBondData>;
+
+struct VertexOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) color: vec3<f32>,
+  @location(1) dist: f32,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
+  let bond = hBondData[instanceIndex];
+  let lineIndex = vertexIndex / 2u;
+  let isStart = vertexIndex % 2u == 0u;
+  
+  let totalLen = bond.dashLen + bond.gapLen;
+  let dashIndex = f32(lineIndex);
+  let tStart = dashIndex * totalLen;
+  let tEnd = tStart + bond.dashLen;
+  
+  let lineDir = normalize(bond.end - bond.start);
+  let lineLength = length(bond.end - bond.start);
+  
+  var pos: vec3<f32>;
+  var dist: f32;
+  
+  if (isStart) {
+    pos = bond.start + lineDir * min(tStart, lineLength);
+    dist = min(tStart, lineLength);
+  } else {
+    pos = bond.start + lineDir * min(tEnd, lineLength);
+    dist = min(tEnd, lineLength);
+  }
+  
+  var output: VertexOutput;
+  output.position = uniforms.viewProj * vec4<f32>(pos, 1.0);
+  output.color = vec3<f32>(0.4, 0.8, 1.0);
+  output.dist = dist;
+  return output;
+}
+`;
+
+const HBOND_FRAGMENT_SHADER = `
+struct FragmentInput {
+  @location(0) color: vec3<f32>,
+  @location(1) dist: f32,
+};
+
+@fragment
+fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
+  return vec4<f32>(input.color, 0.8);
+}
+`;
+
 const TRAJECTORY_VERTEX_SHADER = `
 struct Uniforms {
   viewProj: mat4x4<f32>,
@@ -289,6 +357,7 @@ export interface RendererOptions {
   showForces: boolean;
   showTrajectories: boolean;
   showStars: boolean;
+  showHydrogenBonds: boolean;
   forceScale: number;
 }
 
@@ -297,6 +366,7 @@ const DEFAULT_OPTIONS: RendererOptions = {
   showForces: false,
   showTrajectories: false,
   showStars: true,
+  showHydrogenBonds: false,
   forceScale: 0.1,
 };
 
@@ -314,6 +384,7 @@ export class WebGPURenderer {
   private instanceBuffer: GPUBuffer | null = null;
   private lineDataBuffer: GPUBuffer | null = null;
   private trajectoryBuffer: GPUBuffer | null = null;
+  private hBondBuffer: GPUBuffer | null = null;
   private starBuffer: GPUBuffer | null = null;
 
   private atomVertexBuffer: GPUBuffer | null = null;
@@ -329,12 +400,15 @@ export class WebGPURenderer {
   private atomPipeline: GPURenderPipeline | null = null;
   private bondPipeline: GPURenderPipeline | null = null;
   private forceLinePipeline: GPURenderPipeline | null = null;
+  private hBondPipeline: GPURenderPipeline | null = null;
   private trajectoryPipeline: GPURenderPipeline | null = null;
   private starPipeline: GPURenderPipeline | null = null;
 
   private atomCount: number = 0;
   private bondCount: number = 0;
   private forcePairCount: number = 0;
+  private hBondCount: number = 0;
+  private hBondVertexCount: number = 0;
   private trajectoryLength: number = 0;
   private trajectoryAtomCount: number = 0;
   private starCount: number = 0;
@@ -509,6 +583,11 @@ export class WebGPURenderer {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
+    this.hBondBuffer = this.device.createBuffer({
+      size: 512 * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
     this.starBuffer = this.device.createBuffer({
       size: 2000 * 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -527,6 +606,7 @@ export class WebGPURenderer {
         { binding: 2, resource: { buffer: this.lineDataBuffer! } },
         { binding: 3, resource: { buffer: this.trajectoryBuffer! } },
         { binding: 4, resource: { buffer: this.starBuffer! } },
+        { binding: 5, resource: { buffer: this.hBondBuffer! } },
       ],
     });
   }
@@ -547,6 +627,8 @@ export class WebGPURenderer {
     const trajFS = shaderModule(TRAJECTORY_FRAGMENT_SHADER);
     const starVS = shaderModule(STAR_VERTEX_SHADER);
     const starFS = shaderModule(STAR_FRAGMENT_SHADER);
+    const hBondVS = shaderModule(HBOND_VERTEX_SHADER);
+    const hBondFS = shaderModule(HBOND_FRAGMENT_SHADER);
 
     const bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
@@ -555,6 +637,7 @@ export class WebGPURenderer {
         { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+        { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -675,6 +758,26 @@ export class WebGPURenderer {
       vertex: { module: starVS, entryPoint: 'vs_main', buffers: [] },
       fragment: { module: starFS, entryPoint: 'fs_main', targets: [{ format: this.format }] },
       primitive: { topology: 'point-list' },
+      depthStencil: {
+        depthWriteEnabled: false,
+        depthCompare: 'less',
+        format: 'depth24plus',
+      },
+      multisample: { count: 4 },
+    });
+
+    this.hBondPipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: hBondVS, entryPoint: 'vs_main', buffers: [] },
+      fragment: {
+        module: hBondFS,
+        entryPoint: 'fs_main',
+        targets: [{ format: this.format, blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+          alpha: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+        } }],
+      },
+      primitive: { topology: 'line-list' },
       depthStencil: {
         depthWriteEnabled: false,
         depthCompare: 'less',
@@ -861,6 +964,46 @@ export class WebGPURenderer {
     this.device.queue.writeBuffer(this.lineDataBuffer, 0, lineData);
   }
 
+  updateHydrogenBonds(hBonds: HydrogenBond[], atoms: Atom[]): void {
+    if (!this.device || !this.hBondBuffer) return;
+
+    this.hBondCount = hBonds.length;
+
+    const stride = 8;
+    const hBondData = new Float32Array(hBonds.length * stride);
+    let maxVerts = 0;
+
+    for (let i = 0; i < hBonds.length; i++) {
+      const hb = hBonds[i];
+      const donorAtom = atoms[hb.donor];
+      const acceptorAtom = atoms[hb.acceptor];
+      if (!donorAtom || !acceptorAtom) continue;
+
+      const offset = i * stride;
+      hBondData[offset + 0] = donorAtom.position.x;
+      hBondData[offset + 1] = donorAtom.position.y;
+      hBondData[offset + 2] = donorAtom.position.z;
+      hBondData[offset + 3] = 0.12;
+
+      hBondData[offset + 4] = acceptorAtom.position.x;
+      hBondData[offset + 5] = acceptorAtom.position.y;
+      hBondData[offset + 6] = acceptorAtom.position.z;
+      hBondData[offset + 7] = 0.12;
+
+      const dx = acceptorAtom.position.x - donorAtom.position.x;
+      const dy = acceptorAtom.position.y - donorAtom.position.y;
+      const dz = acceptorAtom.position.z - donorAtom.position.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const dashLen = 0.12;
+      const gapLen = 0.12;
+      const numDashes = Math.ceil(dist / (dashLen + gapLen));
+      maxVerts = Math.max(maxVerts, numDashes * 2);
+    }
+
+    this.hBondVertexCount = maxVerts;
+    this.device.queue.writeBuffer(this.hBondBuffer, 0, hBondData);
+  }
+
   updateTrajectories(trajectories: Map<number, TrajectoryPoint[]>): void {
     if (!this.device || !this.trajectoryBuffer) return;
 
@@ -954,6 +1097,11 @@ export class WebGPURenderer {
       pass.draw(2, this.forcePairCount);
     }
 
+    if (this.options.showHydrogenBonds && this.hBondCount > 0 && this.hBondVertexCount > 0) {
+      pass.setPipeline(this.hBondPipeline!);
+      pass.draw(this.hBondVertexCount, this.hBondCount);
+    }
+
     if (this.options.showBonds && this.bondCount > 0 && this.bondIndexCount > 0) {
       pass.setPipeline(this.bondPipeline!);
       pass.setVertexBuffer(0, this.bondVertexBuffer!);
@@ -975,6 +1123,68 @@ export class WebGPURenderer {
     this.device.queue.submit([commandEncoder.finish()]);
   }
 
+  raycastAtom(screenX: number, screenY: number, atoms: Atom[], camera: CameraState): { atom: Atom; distance: number } | null {
+    if (!this.initialized || atoms.length === 0) return null;
+
+    const aspect = this.width / this.height;
+    const fovRad = (camera.fov * Math.PI) / 180;
+
+    const ndcX = (screenX / this.width) * 2 - 1;
+    const ndcY = -((screenY / this.height) * 2 - 1);
+
+    const tanFov = Math.tan(fovRad / 2);
+    const rayDirLocal = vec3Normalize({
+      x: ndcX * tanFov * aspect,
+      y: ndcY * tanFov,
+      z: -1,
+    });
+
+    const forward = vec3Normalize({
+      x: camera.target.x - camera.position.x,
+      y: camera.target.y - camera.position.y,
+      z: camera.target.z - camera.position.z,
+    });
+
+    const right = vec3Normalize(vec3Cross(forward, camera.up));
+    const up = vec3Cross(right, forward);
+
+    const rayDir = vec3Normalize({
+      x: rayDirLocal.x * right.x + rayDirLocal.y * up.x - rayDirLocal.z * forward.x,
+      y: rayDirLocal.x * right.y + rayDirLocal.y * up.y - rayDirLocal.z * forward.y,
+      z: rayDirLocal.x * right.z + rayDirLocal.y * up.z - rayDirLocal.z * forward.z,
+    });
+
+    let closestAtom: Atom | null = null;
+    let closestDist = Infinity;
+
+    for (const atom of atoms) {
+      const oc = {
+        x: atom.position.x - camera.position.x,
+        y: atom.position.y - camera.position.y,
+        z: atom.position.z - camera.position.z,
+      };
+
+      const t = oc.x * rayDir.x + oc.y * rayDir.y + oc.z * rayDir.z;
+      if (t < 0) continue;
+
+      const distSq =
+        (oc.x * oc.x + oc.y * oc.y + oc.z * oc.z) - t * t;
+
+      const radiusSq = atom.radius * atom.radius * 1.2;
+
+      if (distSq <= radiusSq && t < closestDist) {
+        closestDist = t;
+        closestAtom = atom;
+      }
+    }
+
+    if (closestAtom) {
+      return { atom: closestAtom, distance: closestDist };
+    }
+
+    return null;
+  }
+
   destroy(): void {
     if (this.device) {
       this.msaaTexture?.destroy();
@@ -983,6 +1193,7 @@ export class WebGPURenderer {
       this.instanceBuffer?.destroy();
       this.lineDataBuffer?.destroy();
       this.trajectoryBuffer?.destroy();
+      this.hBondBuffer?.destroy();
       this.starBuffer?.destroy();
       this.atomVertexBuffer?.destroy();
       this.atomNormalBuffer?.destroy();

@@ -23,6 +23,14 @@ export interface Bond {
   type: 'single' | 'double' | 'triple';
 }
 
+export interface HydrogenBond {
+  donor: number;
+  hydrogen: number;
+  acceptor: number;
+  distance: number;
+  angle: number;
+}
+
 export interface Molecule {
   name: string;
   formula: string;
