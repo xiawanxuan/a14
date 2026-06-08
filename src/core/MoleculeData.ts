@@ -12,6 +12,9 @@ export interface Atom {
   color: Vec3;
   radius: number;
   mass: number;
+  glowIntensity: number;
+  specularStrength: number;
+  atomicNumber: number;
 }
 
 export interface Bond {
@@ -31,30 +34,43 @@ interface ElementProperties {
   color: Vec3;
   radius: number;
   mass: number;
+  atomicNumber: number;
+  glowIntensity: number;
+  specularStrength: number;
 }
 
 const ELEMENT_PROPERTIES: Record<string, ElementProperties> = {
-  H: { color: { x: 1.0, y: 1.0, z: 1.0 }, radius: 0.32, mass: 1.008 },
-  C: { color: { x: 0.3, y: 0.3, z: 0.3 }, radius: 0.75, mass: 12.011 },
-  N: { color: { x: 0.2, y: 0.4, z: 1.0 }, radius: 0.71, mass: 14.007 },
-  O: { color: { x: 1.0, y: 0.1, z: 0.1 }, radius: 0.68, mass: 15.999 },
-  F: { color: { x: 0.0, y: 1.0, z: 0.0 }, radius: 0.64, mass: 18.998 },
-  Cl: { color: { x: 0.0, y: 0.8, z: 0.0 }, radius: 0.99, mass: 35.453 },
-  Br: { color: { x: 0.6, y: 0.1, z: 0.0 }, radius: 1.14, mass: 79.904 },
-  I: { color: { x: 0.5, y: 0.0, z: 0.6 }, radius: 1.33, mass: 126.904 },
-  S: { color: { x: 1.0, y: 0.9, z: 0.2 }, radius: 1.02, mass: 32.065 },
-  P: { color: { x: 1.0, y: 0.5, z: 0.0 }, radius: 1.06, mass: 30.974 },
-  Na: { color: { x: 0.7, y: 0.0, z: 0.8 }, radius: 1.54, mass: 22.990 },
-  K: { color: { x: 0.6, y: 0.0, z: 0.8 }, radius: 2.03, mass: 39.098 },
-  Ca: { color: { x: 0.3, y: 0.8, z: 0.3 }, radius: 1.76, mass: 40.078 },
-  Fe: { color: { x: 0.8, y: 0.4, z: 0.0 }, radius: 1.17, mass: 55.845 },
-  Zn: { color: { x: 0.5, y: 0.5, z: 0.5 }, radius: 1.10, mass: 65.38 },
+  H:  { color: { x: 1.00, y: 1.00, z: 1.00 }, radius: 0.25, mass: 1.008,  atomicNumber: 1,  glowIntensity: 0.3, specularStrength: 0.8 },
+  He: { color: { x: 0.85, y: 1.00, z: 1.00 }, radius: 0.30, mass: 4.003,  atomicNumber: 2,  glowIntensity: 0.5, specularStrength: 0.6 },
+  Li: { color: { x: 0.50, y: 0.30, z: 0.75 }, radius: 0.45, mass: 6.941,  atomicNumber: 3,  glowIntensity: 0.2, specularStrength: 0.4 },
+  Be: { color: { x: 0.00, y: 0.50, z: 0.50 }, radius: 0.42, mass: 9.012,  atomicNumber: 4,  glowIntensity: 0.2, specularStrength: 0.5 },
+  B:  { color: { x: 0.85, y: 0.65, z: 0.20 }, radius: 0.40, mass: 10.81,  atomicNumber: 5,  glowIntensity: 0.2, specularStrength: 0.5 },
+  C:  { color: { x: 0.10, y: 0.10, z: 0.10 }, radius: 0.55, mass: 12.011, atomicNumber: 6,  glowIntensity: 0.1, specularStrength: 0.6 },
+  N:  { color: { x: 0.15, y: 0.30, z: 1.00 }, radius: 0.50, mass: 14.007, atomicNumber: 7,  glowIntensity: 0.4, specularStrength: 0.7 },
+  O:  { color: { x: 1.00, y: 0.10, z: 0.05 }, radius: 0.48, mass: 15.999, atomicNumber: 8,  glowIntensity: 0.6, specularStrength: 0.8 },
+  F:  { color: { x: 0.00, y: 0.95, z: 0.00 }, radius: 0.42, mass: 18.998, atomicNumber: 9,  glowIntensity: 0.5, specularStrength: 0.9 },
+  Ne: { color: { x: 0.50, y: 0.80, z: 1.00 }, radius: 0.38, mass: 20.180, atomicNumber: 10, glowIntensity: 0.7, specularStrength: 0.7 },
+  Na: { color: { x: 0.60, y: 0.20, z: 0.90 }, radius: 0.60, mass: 22.990, atomicNumber: 11, glowIntensity: 0.3, specularStrength: 0.4 },
+  Mg: { color: { x: 0.10, y: 0.50, z: 0.00 }, radius: 0.55, mass: 24.305, atomicNumber: 12, glowIntensity: 0.2, specularStrength: 0.5 },
+  Al: { color: { x: 0.50, y: 0.55, z: 0.60 }, radius: 0.58, mass: 26.982, atomicNumber: 13, glowIntensity: 0.2, specularStrength: 0.5 },
+  Si: { color: { x: 0.55, y: 0.45, z: 0.30 }, radius: 0.55, mass: 28.086, atomicNumber: 14, glowIntensity: 0.2, specularStrength: 0.5 },
+  P:  { color: { x: 1.00, y: 0.60, z: 0.00 }, radius: 0.52, mass: 30.974, atomicNumber: 15, glowIntensity: 0.4, specularStrength: 0.6 },
+  S:  { color: { x: 1.00, y: 0.85, z: 0.10 }, radius: 0.50, mass: 32.065, atomicNumber: 16, glowIntensity: 0.5, specularStrength: 0.7 },
+  Cl: { color: { x: 0.00, y: 0.70, z: 0.00 }, radius: 0.48, mass: 35.453, atomicNumber: 17, glowIntensity: 0.4, specularStrength: 0.8 },
+  Ar: { color: { x: 0.60, y: 0.80, z: 0.90 }, radius: 0.45, mass: 39.948, atomicNumber: 18, glowIntensity: 0.5, specularStrength: 0.6 },
+  K:  { color: { x: 0.55, y: 0.00, z: 0.65 }, radius: 0.70, mass: 39.098, atomicNumber: 19, glowIntensity: 0.3, specularStrength: 0.4 },
+  Ca: { color: { x: 0.15, y: 0.80, z: 0.20 }, radius: 0.65, mass: 40.078, atomicNumber: 20, glowIntensity: 0.3, specularStrength: 0.5 },
+  Fe: { color: { x: 0.60, y: 0.30, z: 0.00 }, radius: 0.58, mass: 55.845, atomicNumber: 26, glowIntensity: 0.3, specularStrength: 0.6 },
+  Cu: { color: { x: 0.85, y: 0.50, z: 0.20 }, radius: 0.55, mass: 63.546, atomicNumber: 29, glowIntensity: 0.4, specularStrength: 0.7 },
+  Zn: { color: { x: 0.45, y: 0.45, z: 0.45 }, radius: 0.52, mass: 65.38,  atomicNumber: 30, glowIntensity: 0.3, specularStrength: 0.6 },
+  Br: { color: { x: 0.55, y: 0.00, z: 0.00 }, radius: 0.55, mass: 79.904, atomicNumber: 35, glowIntensity: 0.4, specularStrength: 0.7 },
+  I:  { color: { x: 0.35, y: 0.00, z: 0.40 }, radius: 0.62, mass: 126.904,atomicNumber: 53, glowIntensity: 0.5, specularStrength: 0.6 },
 };
 
 export function getElementProperties(element: string): ElementProperties {
   const props = ELEMENT_PROPERTIES[element];
   if (!props) {
-    return { color: { x: 0.5, y: 0.5, z: 0.5 }, radius: 0.8, mass: 10.0 };
+    return { color: { x: 0.5, y: 0.5, z: 0.5 }, radius: 0.8, mass: 10.0, atomicNumber: 0, glowIntensity: 0.2, specularStrength: 0.5 };
   }
   return props;
 }
@@ -69,6 +85,9 @@ function createAtom(id: number, element: string, x: number, y: number, z: number
     color: props.color,
     radius: props.radius,
     mass: props.mass,
+    glowIntensity: props.glowIntensity,
+    specularStrength: props.specularStrength,
+    atomicNumber: props.atomicNumber,
   };
 }
 
@@ -232,6 +251,9 @@ function generateLJFluid(count: number = 32, boxSize: number = 6): Molecule {
           color,
           radius: 0.5,
           mass: 1.0,
+          glowIntensity: 0.5,
+          specularStrength: 0.6,
+          atomicNumber: 18,
         });
         id++;
       }

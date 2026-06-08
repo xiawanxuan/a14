@@ -23,7 +23,11 @@ struct Instance {
   position: vec3<f32>,
   radius: f32,
   color: vec3<f32>,
-  padding: f32,
+  glowIntensity: f32,
+  specularStrength: f32,
+  atomicNumber: f32,
+  padding1: f32,
+  padding2: f32,
 };
 
 struct VertexOutput {
@@ -32,6 +36,9 @@ struct VertexOutput {
   @location(1) worldPos: vec3<f32>,
   @location(2) color: vec3<f32>,
   @location(3) viewDir: vec3<f32>,
+  @location(4) glowIntensity: f32,
+  @location(5) specularStrength: f32,
+  @location(6) atomicNumber: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -48,6 +55,9 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @bu
   output.worldPos = worldPos;
   output.color = instance.color;
   output.viewDir = normalize(uniforms.viewPos - worldPos);
+  output.glowIntensity = instance.glowIntensity;
+  output.specularStrength = instance.specularStrength;
+  output.atomicNumber = instance.atomicNumber;
   return output;
 }
 `;
@@ -58,12 +68,15 @@ struct FragmentInput {
   @location(1) worldPos: vec3<f32>,
   @location(2) color: vec3<f32>,
   @location(3) viewDir: vec3<f32>,
+  @location(4) glowIntensity: f32,
+  @location(5) specularStrength: f32,
+  @location(6) atomicNumber: f32,
 };
 
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
   let lightDir = normalize(vec3<f32>(0.5, 0.8, 1.0));
-  let ambientColor = vec3<f32>(0.1, 0.15, 0.25);
+  let ambientColor = vec3<f32>(0.08, 0.12, 0.2);
   let diffuseColor = input.color;
   let specularColor = vec3<f32>(1.0, 1.0, 1.0);
   
@@ -72,16 +85,19 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
   let halfDir = normalize(lightDir + viewDir);
   
   let diffuse = max(dot(normal, lightDir), 0.0);
-  let specular = pow(max(dot(normal, halfDir), 0.0), 32.0);
+  let specular = pow(max(dot(normal, halfDir), 0.0), 32.0) * input.specularStrength;
   
-  var finalColor = ambientColor * diffuseColor + diffuse * diffuseColor + specular * 0.5;
+  var finalColor = ambientColor * diffuseColor + diffuse * diffuseColor + specular * specularColor * 0.8;
   
   let rim = 1.0 - max(dot(normal, viewDir), 0.0);
-  let rimColor = vec3<f32>(0.0, 0.8, 1.0);
-  finalColor += rimColor * pow(rim, 3.0) * 0.3;
+  let rimColor = vec3<f32>(0.0, 0.7, 1.0);
+  finalColor += rimColor * pow(rim, 3.0) * (0.2 + input.glowIntensity * 0.3);
   
-  let glow = pow(max(dot(normal, viewDir), 0.0), 0.5);
-  finalColor += input.color * glow * 0.1;
+  let fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 2.0);
+  finalColor += input.color * fresnel * input.glowIntensity * 0.5;
+  
+  let centerGlow = pow(max(dot(normal, viewDir), 0.0), 0.3);
+  finalColor += input.color * centerGlow * input.glowIntensity * 0.15;
   
   return vec4<f32>(finalColor, 1.0);
 }
@@ -694,11 +710,11 @@ export class WebGPURenderer {
     if (!this.device || !this.instanceBuffer) return;
 
     this.atomCount = atoms.length;
-    const instanceData = new Float32Array(atoms.length * 8);
+    const instanceData = new Float32Array(atoms.length * 12);
 
     for (let i = 0; i < atoms.length; i++) {
       const atom = atoms[i];
-      const offset = i * 8;
+      const offset = i * 12;
       instanceData[offset + 0] = atom.position.x;
       instanceData[offset + 1] = atom.position.y;
       instanceData[offset + 2] = atom.position.z;
@@ -706,7 +722,11 @@ export class WebGPURenderer {
       instanceData[offset + 4] = atom.color.x;
       instanceData[offset + 5] = atom.color.y;
       instanceData[offset + 6] = atom.color.z;
-      instanceData[offset + 7] = 0;
+      instanceData[offset + 7] = atom.glowIntensity || 0.2;
+      instanceData[offset + 8] = atom.specularStrength || 0.5;
+      instanceData[offset + 9] = atom.atomicNumber || 0;
+      instanceData[offset + 10] = 0;
+      instanceData[offset + 11] = 0;
     }
 
     this.device.queue.writeBuffer(this.instanceBuffer, 0, instanceData);
